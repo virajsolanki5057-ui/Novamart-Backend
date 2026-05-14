@@ -50,9 +50,8 @@ export const getProducts = async (req, res) => {
       if (maxPrice) filter.price.$lte = Number(maxPrice);
     }
 
-    const query = Products.find(filter)
-      .populate("user", "name email role")
-      .sort({ createdAt: -1 });
+  const query = Products.find(filter)
+  .sort({ createdAt: -1 });
 
     const total = await Products.countDocuments(filter);
 
