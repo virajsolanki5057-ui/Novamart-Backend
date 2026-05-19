@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import passport from "passport";
 import { OAuth2Client } from "google-auth-library";
+import { isGoogleOAuthConfigured } from "../config/passport.js";
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -122,6 +123,15 @@ export const startGoogleAuth = (req, res, next) => {
   const requestedRedirect = sanitizeRedirectPath(req.query.redirect);
   const state = encodeState(requestedRedirect);
 
+  if (!isGoogleOAuthConfigured()) {
+    return res.redirect(
+      buildFrontendLoginUrl({
+        redirect: requestedRedirect,
+        error: "Google OAuth is not configured on server. Missing GOOGLE_CLIENT_SECRET.",
+      })
+    );
+  }
+
   passport.authenticate("google", {
     scope: ["profile", "email"],
     session: false,
@@ -131,6 +141,15 @@ export const startGoogleAuth = (req, res, next) => {
 
 export const googleCallback = (req, res, next) => {
   const redirectPath = decodeState(req.query.state);
+
+  if (!isGoogleOAuthConfigured()) {
+    return res.redirect(
+      buildFrontendLoginUrl({
+        redirect: redirectPath,
+        error: "Google OAuth is not configured on server. Missing GOOGLE_CLIENT_SECRET.",
+      })
+    );
+  }
 
   passport.authenticate("google", { session: false }, (err, user, info) => {
     if (err || !user) {
