@@ -1,11 +1,13 @@
 import User from "../models/User.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import passport from "passport";
 import { OAuth2Client } from "google-auth-library";
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
-const generateToken = (user) => {
-  return jwt.sign(
+
+const generateToken = (user) =>
+  jwt.sign(
     {
       id: user._id,
       email: user.email,
@@ -14,6 +16,38 @@ const generateToken = (user) => {
     process.env.JWT_SECRET,
     { expiresIn: "1d" }
   );
+
+const getFrontendUrl = () => (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/$/, "");
+
+const sanitizeRedirectPath = (path) => {
+  if (!path || typeof path !== "string") return "/";
+  if (!path.startsWith("/") || path.startsWith("//")) return "/";
+  return path;
+};
+
+const buildFrontendLoginUrl = ({ redirect, token, error }) => {
+  const url = new URL("/login", `${getFrontendUrl()}/`);
+  const safeRedirect = sanitizeRedirectPath(redirect);
+
+  if (token) url.searchParams.set("oauth_token", token);
+  if (error) url.searchParams.set("oauth_error", error);
+  if (safeRedirect !== "/") url.searchParams.set("redirect", safeRedirect);
+
+  return url.toString();
+};
+
+const encodeState = (redirectPath) =>
+  Buffer.from(JSON.stringify({ redirect: sanitizeRedirectPath(redirectPath) })).toString("base64url");
+
+const decodeState = (state) => {
+  if (!state || typeof state !== "string") return "/";
+
+  try {
+    const parsed = JSON.parse(Buffer.from(state, "base64url").toString("utf8"));
+    return sanitizeRedirectPath(parsed.redirect);
+  } catch {
+    return "/";
+  }
 };
 
 export const register = async (req, res) => {
@@ -40,21 +74,20 @@ export const register = async (req, res) => {
 
     const token = generateToken(user);
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       token,
       user,
     });
   } catch (err) {
     console.error("REGISTER ERROR:", err);
-    res.status(500).json({ msg: "Server error" });
+    return res.status(500).json({ msg: "Server error" });
   }
 };
 
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
-
     const user = await User.findOne({ email });
 
     if (!user) {
@@ -68,74 +101,106 @@ export const login = async (req, res) => {
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
-
     if (!isMatch) {
       return res.status(400).json({ msg: "Invalid credentials" });
     }
 
     const token = generateToken(user);
 
-    res.json({
+    return res.json({
       success: true,
       token,
       user,
     });
   } catch (err) {
     console.error("LOGIN ERROR:", err);
-    res.status(500).json({ msg: "Server error" });
+    return res.status(500).json({ msg: "Server error" });
   }
+};
+
+export const startGoogleAuth = (req, res, next) => {
+  const requestedRedirect = sanitizeRedirectPath(req.query.redirect);
+  const state = encodeState(requestedRedirect);
+
+  passport.authenticate("google", {
+    scope: ["profile", "email"],
+    session: false,
+    state,
+  })(req, res, next);
+};
+
+export const googleCallback = (req, res, next) => {
+  const redirectPath = decodeState(req.query.state);
+
+  passport.authenticate("google", { session: false }, (err, user, info) => {
+    if (err || !user) {
+      const errorMessage = info?.message || err?.message || "Google login failed";
+      return res.redirect(buildFrontendLoginUrl({ redirect: redirectPath, error: errorMessage }));
+    }
+
+    const token = generateToken(user);
+    return res.redirect(buildFrontendLoginUrl({ redirect: redirectPath, token }));
+  })(req, res, next);
 };
 
 export const googleLogin = async (req, res) => {
   try {
-    console.log("📥 Incoming Google Login Request Body:", req.body);
-    
-    // Check if frontend sent a token OR raw user data
-    const { token, name: bodyName, email: bodyEmail, avatar: bodyAvatar, providerId: bodyProviderId } = req.body;
+    const {
+      token,
+      idToken,
+      name: bodyName,
+      email: bodyEmail,
+      avatar: bodyAvatar,
+      providerId: bodyProviderId,
+    } = req.body || {};
 
-    let email, name, provider_id, avatar;
+    const rawToken = token || idToken;
+    let email;
+    let name;
+    let provider_id;
+    let avatar;
 
-    if (token) {
-      // 1. If frontend sends the actual Google JWT Token, verify it securely
+    if (rawToken) {
       const ticket = await client.verifyIdToken({
-        idToken: token,
+        idToken: rawToken,
         audience: process.env.GOOGLE_CLIENT_ID,
       });
 
       const payload = ticket.getPayload();
-      email = payload.email;
-      name = payload.name;
-      provider_id = payload.sub;
-      avatar = payload.picture;
+      email = payload?.email?.toLowerCase();
+      name = payload?.name;
+      provider_id = payload?.sub;
+      avatar = payload?.picture || null;
     } else if (bodyEmail && bodyName) {
-      // 2. Fallback: If frontend already processed the OAuth and just sends the profile
-      email = bodyEmail;
+      email = String(bodyEmail).toLowerCase();
       name = bodyName;
       provider_id = bodyProviderId || "google-auth";
-      avatar = bodyAvatar;
+      avatar = bodyAvatar || null;
     } else {
       return res.status(400).json({ msg: "Token or valid user profile data is required" });
     }
 
-    // 3. Search for user by provider_id OR email
+    if (!email || !provider_id) {
+      return res.status(400).json({ msg: "Google profile is missing required fields" });
+    }
+
     let user = await User.findOne({
-      $or: [{ provider_id, provider: "google" }, { email }],
+      $or: [{ provider: "google", provider_id }, { email }],
     });
 
     if (user) {
-      // User exists, just update their details if they were missing
-      if (!user.provider_id) {
-        user.provider = "google";
-        user.provider_id = provider_id;
-        user.avatar = user.avatar || avatar;
-        await user.save();
-      } else if (user.provider !== "google") {
+      if (user.provider !== "google" && user.password) {
         return res.status(400).json({
           msg: `Please login using your ${user.provider || "local"} account.`,
         });
       }
+
+      user.provider = "google";
+      user.provider_id = provider_id;
+      user.avatar = user.avatar || avatar;
+      user.name = user.name || name;
+      await user.save();
     } else {
-      // 4. USER DOES NOT EXIST -> CREATE AND STORE IN DATABASE
       user = await User.create({
         name,
         email,
@@ -143,18 +208,17 @@ export const googleLogin = async (req, res) => {
         provider_id,
         provider: "google",
       });
-      console.log("✅ New Google User Stored in Database:", user.email);
     }
 
     const jwtToken = generateToken(user);
 
-    res.json({
+    return res.json({
       success: true,
       token: jwtToken,
       user,
     });
   } catch (err) {
-    console.error("❌ GOOGLE LOGIN ERROR:", err);
-    res.status(500).json({ msg: "Failed to process Google Login", error: err.message });
+    console.error("GOOGLE LOGIN ERROR:", err);
+    return res.status(500).json({ msg: "Failed to process Google login", error: err.message });
   }
 };

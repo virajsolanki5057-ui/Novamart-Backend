@@ -43,7 +43,7 @@ const connectDB = async () => {
       console.log(
         "⚠️ Check MongoDB Atlas IP Access and MONGO_URI"
       );
-    }
+    } 
 
     process.exit(1);
   }
