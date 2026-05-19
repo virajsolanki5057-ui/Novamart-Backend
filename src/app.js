@@ -44,7 +44,6 @@ mongoose
   .catch((err) => console.error("DB error:", err));
 
 app.use(cors(corsOptions));
-app.options("*", cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(passport.initialize());
