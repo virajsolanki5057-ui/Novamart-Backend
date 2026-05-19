@@ -1,0 +1,15 @@
+file:///D:/Bhushan%20Sir%20Task/Ecommers_website/Backend-ecommerce/[eval1]:1
+import
+      
+
+SyntaxError: Unexpected end of input
+    at compileSourceTextModule (node:internal/modules/esm/utils:317:16)
+    at ModuleLoader.createModuleWrap (node:internal/modules/esm/loader:239:12)
+    at ModuleLoader.eval (node:internal/modules/esm/loader:278:23)
+    at node:internal/process/execution:77:24
+    at asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:11)
+    at Object.runEntryPointWithESMLoader (node:internal/modules/run_main:123:19)
+    at evalModuleEntryPoint (node:internal/process/execution:76:47)
+    at node:internal/main/eval_string:37:3
+
+Node.js v24.11.1

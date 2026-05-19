@@ -2,8 +2,9 @@ import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import User from "../models/User.js";
 
+export const isGoogleClientIdConfigured = () => Boolean(process.env.GOOGLE_CLIENT_ID);
 export const isGoogleOAuthConfigured = () =>
-  Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+  Boolean(isGoogleClientIdConfigured() && process.env.GOOGLE_CLIENT_SECRET);
 
 const resolveGoogleCallbackUrl = () => {
   if (process.env.GOOGLE_CALLBACK_URL) {
@@ -72,9 +73,13 @@ if (isGoogleOAuthConfigured()) {
     )
   );
 } else {
-  console.warn(
-    "Google OAuth disabled: set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in backend environment variables."
-  );
+  if (isGoogleClientIdConfigured()) {
+    console.warn(
+      "Google OAuth redirect flow disabled: GOOGLE_CLIENT_SECRET not set. POST /api/auth/google (ID token flow) is still enabled."
+    );
+  } else {
+    console.warn("Google login disabled: set GOOGLE_CLIENT_ID in backend environment variables.");
+  }
 }
 
 export default passport;

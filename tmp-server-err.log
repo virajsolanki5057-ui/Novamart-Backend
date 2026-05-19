@@ -1,0 +1,5 @@
+Google OAuth disabled: set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in backend environment variables.
+GET PRODUCTS ERROR: MongooseError: Operation `products.countDocuments()` buffering timed out after 10000ms
+    at Timeout._onTimeout (D:\Bhushan Sir Task\Ecommers_website\Backend-ecommerce\node_modules\mongoose\lib\drivers\node-mongodb-native\collection.js:142:25)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)

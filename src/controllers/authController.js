@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import passport from "passport";
 import { OAuth2Client } from "google-auth-library";
-import { isGoogleOAuthConfigured } from "../config/passport.js";
+import { isGoogleClientIdConfigured, isGoogleOAuthConfigured } from "../config/passport.js";
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -127,7 +127,8 @@ export const startGoogleAuth = (req, res, next) => {
     return res.redirect(
       buildFrontendLoginUrl({
         redirect: requestedRedirect,
-        error: "Google OAuth is not configured on server. Missing GOOGLE_CLIENT_SECRET.",
+        error:
+          "Google OAuth redirect flow is not configured. Missing GOOGLE_CLIENT_SECRET. Use POST /api/auth/google with Google ID token.",
       })
     );
   }
@@ -146,7 +147,8 @@ export const googleCallback = (req, res, next) => {
     return res.redirect(
       buildFrontendLoginUrl({
         redirect: redirectPath,
-        error: "Google OAuth is not configured on server. Missing GOOGLE_CLIENT_SECRET.",
+        error:
+          "Google OAuth redirect flow is not configured. Missing GOOGLE_CLIENT_SECRET. Use POST /api/auth/google with Google ID token.",
       })
     );
   }
@@ -180,6 +182,12 @@ export const googleLogin = async (req, res) => {
     let avatar;
 
     if (rawToken) {
+      if (!isGoogleClientIdConfigured()) {
+        return res.status(500).json({
+          msg: "GOOGLE_CLIENT_ID is missing on server",
+        });
+      }
+
       const ticket = await client.verifyIdToken({
         idToken: rawToken,
         audience: process.env.GOOGLE_CLIENT_ID,

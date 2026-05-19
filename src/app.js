@@ -1,7 +1,6 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import mongoose from "mongoose";
 import passport from "passport";
 import "./config/passport.js";
 
@@ -16,32 +15,52 @@ import wishlistRoutes from "./routes/WishlistRoutes.js";
 
 const app = express();
 
-const defaultOrigins = [
+const parseOriginList = (value) =>
+  String(value || "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+const allowedOrigins = new Set([
   "http://localhost:3000",
   "http://127.0.0.1:3000",
-  process.env.FRONTEND_URL,
-].filter(Boolean);
+  "https://my-novamart-website.vercel.app",
+  ...parseOriginList(process.env.FRONTEND_URL),
+  ...parseOriginList(process.env.CORS_ORIGINS),
+]);
 
-const allowedOrigins = (process.env.CORS_ORIGINS || defaultOrigins.join(","))
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
+const allowVercelPreviewOrigins =
+  String(process.env.ALLOW_VERCEL_PREVIEW_ORIGINS || "false").toLowerCase() === "true";
+
+const isVercelPreviewOrigin = (origin) => {
+  try {
+    const url = new URL(origin);
+    return url.protocol === "https:" && url.hostname.endsWith(".vercel.app");
+  } catch {
+    return false;
+  }
+};
+
+const isAllowedOrigin = (origin) =>
+  allowedOrigins.has(origin) || (allowVercelPreviewOrigins && isVercelPreviewOrigin(origin));
 
 const corsOptions = {
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
+    if (isAllowedOrigin(origin)) return callback(null, true);
     return callback(new Error(`CORS blocked for origin: ${origin}`));
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "x-guest-id"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "x-guest-id",
+    "X-Requested-With",
+    "Accept",
+    "Origin",
+  ],
 };
-
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => console.log("MongoDB connected"))
-  .catch((err) => console.error("DB error:", err));
 
 app.use(cors(corsOptions));
 app.use(express.json());
@@ -70,7 +89,11 @@ app.use((req, res) => {
 
 app.use((err, req, res, next) => {
   console.error("Critical error:", err);
-  res.status(500).json({
+  const statusCode = err?.message?.startsWith("CORS blocked for origin:")
+    ? 403
+    : 500;
+
+  res.status(statusCode).json({
     success: false,
     message: err.message || "Internal Server Error",
   });
